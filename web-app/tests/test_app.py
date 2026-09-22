@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from datetime import datetime
 from io import BytesIO
 from bson import ObjectId
+import pytest
+from werkzeug.security import check_password_hash
 
 import app as webapp
 
@@ -47,7 +49,29 @@ def test_login_creates_new_user_and_redirects_home(client, fake_db):
 
     user = fake_db.users.find_one({"username": "alice"})
     assert user is not None
-    assert user["password"] == "pw"
+    assert user["password"] != "pw"
+    assert check_password_hash(user["password"], "pw")
+
+
+def test_login_upgrades_a_legacy_plaintext_password(client, fake_db):
+    user_id = fake_db.users.insert_one({"username": "legacy", "password": "old-pw"}).inserted_id
+
+    res = client.post(
+        "/login", data={"username": "legacy", "password": "old-pw"}, follow_redirects=False
+    )
+
+    assert res.status_code == 302
+    upgraded = fake_db.users.find_one({"_id": user_id})
+    assert upgraded["password"] != "old-pw"
+    assert check_password_hash(upgraded["password"], "old-pw")
+
+
+def test_production_requires_an_explicit_session_secret(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("FLASK_SECRET_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="FLASK_SECRET_KEY"):
+        webapp._session_secret()
 
 
 def test_login_missing_fields(client):

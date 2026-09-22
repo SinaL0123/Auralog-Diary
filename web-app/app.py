@@ -11,8 +11,11 @@ from bson import ObjectId
 from pymongo import MongoClient
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from werkzeug.security import check_password_hash, generate_password_hash
+import hmac
 import requests
 import os
+import secrets
 
 AI_SERVICE_BASE = os.environ.get("AI_SERVICE_URL", "http://localhost:8001")
 
@@ -22,7 +25,24 @@ db = client["diary_db"]
 
 
 app = Flask(__name__)
-app.secret_key = "dev-secret-key"
+
+
+def _session_secret() -> str:
+    """Return a stable production secret and a safe, ephemeral development fallback."""
+    secret = os.environ.get("FLASK_SECRET_KEY")
+    if secret:
+        return secret
+    if os.environ.get("APP_ENV", "development").lower() == "production":
+        raise RuntimeError("FLASK_SECRET_KEY must be set when APP_ENV=production")
+    return secrets.token_urlsafe(32)
+
+
+app.config.update(
+    SECRET_KEY=_session_secret(),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("APP_ENV", "development").lower() == "production",
+)
 
 
 # ----------------------------
@@ -104,6 +124,31 @@ def analyze_mood_and_summary(user_texts):
 # ----------------------------
 
 
+def _valid_password_and_migrate(users, user, candidate: str) -> bool:
+    """Verify either password format and upgrade a legacy plaintext value on login.
+
+    Old Mongo dumps store the password in ``password`` as plaintext. A one-shot
+    hash migration cannot be performed safely without knowing each password, so a
+    successful legacy login replaces only that user's value with a Werkzeug hash.
+    """
+    stored = user.get("password")
+    if not isinstance(stored, str):
+        return False
+    try:
+        if check_password_hash(stored, candidate):
+            return True
+    except (TypeError, ValueError):
+        # A legacy plaintext value is not a valid Werkzeug hash.
+        pass
+    if not hmac.compare_digest(stored, candidate):
+        return False
+    users.update_one(
+        {"_id": user["_id"], "password": stored},
+        {"$set": {"password": generate_password_hash(candidate)}},
+    )
+    return True
+
+
 @app.route("/")
 def root():
     return redirect(url_for("login"))
@@ -126,12 +171,14 @@ def login():
     user = users.find_one({"username": username})
 
     if user:
-        if user.get("password") != password:
+        if not _valid_password_and_migrate(users, user, password):
             return render_template(
                 "login.html", error="Wrong password.", username=username
             )
     else:
-        uid = users.insert_one({"username": username, "password": password}).inserted_id
+        uid = users.insert_one(
+            {"username": username, "password": generate_password_hash(password)}
+        ).inserted_id
         user = users.find_one({"_id": uid})
 
     session["user_id"] = str(user["_id"])

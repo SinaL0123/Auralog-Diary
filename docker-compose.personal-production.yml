@@ -1,0 +1,50 @@
+name: auralog
+
+services:
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+
+  ai-service:
+    build: ./ai-service
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in .env.production}
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_URL: mongodb://mongo:27017/
+
+  web-app:
+    build: ./web-app
+    restart: unless-stopped
+    depends_on:
+      - mongo
+      - ai-service
+    environment:
+      APP_ENV: production
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Set FLASK_SECRET_KEY in .env.production}
+      MONGO_URI: mongodb://mongo:27017
+      AI_SERVICE_URL: http://ai-service:8000
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - web-app
+    environment:
+      CADDY_EMAIL: ${CADDY_EMAIL:?Set CADDY_EMAIL in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  mongo-data:
+  caddy-data:
+  caddy-config:
