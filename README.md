@@ -1,7 +1,7 @@
 # AI Diary System 📔
 <div align="center">
 
-###  [**Try Live Demo at auralog.xyz**](https://auralog.xyz) 
+###  [**Try Live Demo at auralogdiary.com**](https://auralogdiary.com) 
 
 *Transform your voice into beautiful diary entries with AI*
 
