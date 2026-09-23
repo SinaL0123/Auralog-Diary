@@ -16,6 +16,9 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in .env.production}
       MONGO_URI: mongodb://mongo:27017
       MONGO_URL: mongodb://mongo:27017/
+      HF_HOME: /models/huggingface
+    volumes:
+      - whisper-cache:/models
 
   web-app:
     build: ./web-app
@@ -48,3 +51,4 @@ volumes:
   mongo-data:
   caddy-data:
   caddy-config:
+  whisper-cache:

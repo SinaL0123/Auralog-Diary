@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 # Assuming these modules exist and are correct
 from app.db import create_or_get_conversation, append_message, conversations
-from app.services.stt_service import transcribe_audio
+from app.services.stt_service import get_model, transcribe_audio
 from .gemini_client import generate_cheerful_reply, generate_diary
 
 
@@ -57,6 +57,12 @@ class TranscribeResponse(BaseModel):
 # ========= FastAPI app =========
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+def preload_speech_model() -> None:
+    """Load Whisper before accepting traffic so the first recording is not slow."""
+    get_model()
 
 
 @app.get("/health")
